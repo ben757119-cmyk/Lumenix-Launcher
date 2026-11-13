@@ -83,7 +83,9 @@ public final class MicrosoftAuth {
 
             if (hasStr(token, "access_token")) {
                 accessToken = token.get("access_token").getAsString();
-                if (hasStr(token, "refresh_token")) refresh = token.get("refresh_token").getAsString();
+                if (hasStr(token, "refresh_token")) {
+                    refresh = token.get("refresh_token").getAsString();
+                }
                 break;
             }
             if (hasStr(token, "error")) {
@@ -102,29 +104,29 @@ public final class MicrosoftAuth {
         }
 
         status.accept("Xbox Live…");
-        String xblBody = "{"
-                + "\"Properties\":{"
-                + "\"AuthMethod\":\"RPS\","
-                + "\"SiteName\":\"user.auth.xboxlive.com\","
-                + "\"RpsTicket\":\"d=" + accessToken + "\""
-                + "},"
-                + "\"RelyingParty\":\"http://auth.xboxlive.com\","
-                + "\"TokenType\":\"JWT\""
-                + "}";
-        JsonObject xbl = postJson("https://user.auth.xboxlive.com/user/authenticate", xblBody);
+        JsonObject xblProps = new JsonObject();
+        xblProps.addProperty("AuthMethod", "RPS");
+        xblProps.addProperty("SiteName", "user.auth.xboxlive.com");
+        xblProps.addProperty("RpsTicket", "d=" + accessToken);
+        JsonObject xblReq = new JsonObject();
+        xblReq.add("Properties", xblProps);
+        xblReq.addProperty("RelyingParty", "http://auth.xboxlive.com");
+        xblReq.addProperty("TokenType", "JWT");
+        JsonObject xbl = postJson("https://user.auth.xboxlive.com/user/authenticate", Json.GSON.toJson(xblReq));
         String xblToken = require(xbl, "Token", "Xbox Live");
         String uhs = extractUhs(xbl);
 
         status.accept("XSTS…");
-        String xstsBody = "{"
-                + "\"Properties\":{"
-                + "\"SandboxId\":\"RETAIL\","
-                + "\"UserTokens\":[\"" + xblToken + "\"]"
-                + "},"
-                + "\"RelyingParty\":\"rp://api.minecraftservices.com/\","
-                + "\"TokenType\":\"JWT\""
-                + "}";
-        JsonObject xsts = postJson("https://xsts.auth.xboxlive.com/xsts/authorize", xstsBody);
+        JsonArray userTokens = new JsonArray();
+        userTokens.add(xblToken);
+        JsonObject xstsProps = new JsonObject();
+        xstsProps.addProperty("SandboxId", "RETAIL");
+        xstsProps.add("UserTokens", userTokens);
+        JsonObject xstsReq = new JsonObject();
+        xstsReq.add("Properties", xstsProps);
+        xstsReq.addProperty("RelyingParty", "rp://api.minecraftservices.com/");
+        xstsReq.addProperty("TokenType", "JWT");
+        JsonObject xsts = postJson("https://xsts.auth.xboxlive.com/xsts/authorize", Json.GSON.toJson(xstsReq));
         if (xsts.has("XErr")) throw new IllegalStateException(xstsError(xsts));
         String xstsToken = require(xsts, "Token", "XSTS");
         try {
@@ -133,9 +135,11 @@ public final class MicrosoftAuth {
         } catch (Exception ignored) {}
 
         status.accept("Minecraft services…");
-        String mcBody = "{\"identityToken\":\"XBL3.0 x=" + uhs + ";" + xstsToken + "\"}";
+        JsonObject mcReq = new JsonObject();
+        mcReq.addProperty("identityToken", "XBL3.0 x=" + uhs + ";" + xstsToken);
         JsonObject mcLogin = postJson(
-                "https://api.minecraftservices.com/authentication/login_with_xbox", mcBody);
+                "https://api.minecraftservices.com/authentication/login_with_xbox",
+                Json.GSON.toJson(mcReq));
         String mcToken = require(mcLogin, "access_token", "Minecraft login");
 
         status.accept("Loading Minecraft profile…");
@@ -143,7 +147,7 @@ public final class MicrosoftAuth {
         if (!hasStr(profile, "name") || !hasStr(profile, "id")) {
             throw new IllegalStateException(
                     "No Minecraft Java profile on this Microsoft account. "
-                            + "Claim/buy Java Edition, then retry. Response: " + profile);
+                            + "Claim/buy Java Edition, then retry.");
         }
 
         AuthSession session = new AuthSession();
@@ -209,8 +213,8 @@ public final class MicrosoftAuth {
         return def;
     }
 
-    private static JsonObject postForm(String url, String form) throws Exception {
-        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+    private static JsonObject postForm(String endpoint, String form) throws Exception {
+        HttpRequest req = HttpRequest.newBuilder(URI.create(endpoint))
                 .timeout(Duration.ofSeconds(30))
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .header("User-Agent", "LumenixLauncher/1.0.2")
@@ -225,8 +229,8 @@ public final class MicrosoftAuth {
         return body;
     }
 
-    private static JsonObject postJson(String url, String json) throws Exception {
-        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+    private static JsonObject postJson(String endpoint, String json) throws Exception {
+        HttpRequest req = HttpRequest.newBuilder(URI.create(endpoint))
                 .timeout(Duration.ofSeconds(30))
                 .header("Content-Type", "application/json")
                 .header("Accept", "application/json")
@@ -241,8 +245,8 @@ public final class MicrosoftAuth {
         return body;
     }
 
-    private static JsonObject getJson(String url, String bearer) throws Exception {
-        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+    private static JsonObject getJson(String endpoint, String bearer) throws Exception {
+        HttpRequest req = HttpRequest.newBuilder(URI.create(endpoint))
                 .timeout(Duration.ofSeconds(30))
                 .header("Authorization", "Bearer " + bearer)
                 .header("User-Agent", "LumenixLauncher/1.0.2")
