@@ -18,18 +18,11 @@ import java.nio.file.Files;
 import java.time.Duration;
 import java.util.function.Consumer;
 
-/**
- * Microsoft device-code login for Minecraft.
- * Uses a public device-code-capable client id (same pattern as Prism Launcher).
- */
 public final class MicrosoftAuth {
-    // Public client id used by Prism Launcher / many FOSS launchers (device code flow)
     private static final String CLIENT_ID = "c36a9fb6-4f2a-41ff-90bd-ae7cc92031eb";
     private static final String SCOPE = "XboxLive.signin offline_access";
-
     private static final HttpClient HTTP = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(20))
-            .build();
+            .connectTimeout(Duration.ofSeconds(20)).build();
 
     private MicrosoftAuth() {}
 
@@ -49,9 +42,7 @@ public final class MicrosoftAuth {
     }
 
     public static void clear() {
-        try {
-            Files.deleteIfExists(Paths.authStore());
-        } catch (Throwable ignored) {}
+        try { Files.deleteIfExists(Paths.authStore()); } catch (Throwable ignored) {}
     }
 
     public static AuthSession loginDeviceCode(Consumer<String> status) throws Exception {
@@ -59,28 +50,23 @@ public final class MicrosoftAuth {
         JsonObject dc = postForm(
                 "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode",
                 "client_id=" + url(CLIENT_ID) + "&scope=" + url(SCOPE));
-
         if (dc.has("error")) {
             throw new IllegalStateException("Device code failed: "
                     + str(dc, "error") + " — " + str(dc, "error_description"));
         }
 
-        String userCode = require(dc, "user_code", "device-code response");
-        String deviceCode = require(dc, "device_code", "device-code response");
-        String verifyUrl = dc.has("verification_uri")
-                ? require(dc, "verification_uri", "device-code response")
+        String userCode = require(dc, "user_code", "device-code");
+        String deviceCode = require(dc, "device_code", "device-code");
+        String verifyUrl = hasStr(dc, "verification_uri")
+                ? require(dc, "verification_uri", "device-code")
                 : "https://www.microsoft.com/link";
-        int interval = dc.has("interval") && !dc.get("interval").isJsonNull()
-                ? dc.get("interval").getAsInt() : 5;
-        int expires = dc.has("expires_in") && !dc.get("expires_in").isJsonNull()
-                ? dc.get("expires_in").getAsInt() : 900;
+        int interval = intOr(dc, "interval", 5);
+        int expires = intOr(dc, "expires_in", 900);
 
         status.accept("Open " + verifyUrl + " and enter code: " + userCode);
-        Log.info("Microsoft login: open " + verifyUrl + " code=" + userCode);
+        Log.info("Microsoft login code=" + userCode + " url=" + verifyUrl);
         try {
-            if (Desktop.isDesktopSupported()) {
-                Desktop.getDesktop().browse(URI.create(verifyUrl));
-            }
+            if (Desktop.isDesktopSupported()) Desktop.getDesktop().browse(URI.create(verifyUrl));
         } catch (Throwable ignored) {}
 
         long deadline = System.currentTimeMillis() + expires * 1000L;
@@ -95,17 +81,12 @@ public final class MicrosoftAuth {
                             + "&client_id=" + url(CLIENT_ID)
                             + "&device_code=" + url(deviceCode));
 
-            if (token.has("access_token") && token.get("access_token") != null
-                    && !token.get("access_token").isJsonNull()) {
+            if (hasStr(token, "access_token")) {
                 accessToken = token.get("access_token").getAsString();
-                if (token.has("refresh_token") && token.get("refresh_token") != null
-                        && !token.get("refresh_token").isJsonNull()) {
-                    refresh = token.get("refresh_token").getAsString();
-                }
+                if (hasStr(token, "refresh_token")) refresh = token.get("refresh_token").getAsString();
                 break;
             }
-
-            if (token.has("error") && token.get("error") != null && !token.get("error").isJsonNull()) {
+            if (hasStr(token, "error")) {
                 String err = token.get("error").getAsString();
                 if ("authorization_pending".equals(err) || "slow_down".equals(err)) {
                     status.accept("Waiting for Microsoft approval… (code " + userCode + ")");
@@ -116,12 +97,9 @@ public final class MicrosoftAuth {
                         + " — " + str(token, "error_description"));
             }
         }
-
         if (accessToken == null) {
-            throw new IllegalStateException("Microsoft login timed out. Try again and approve the code quickly.");
+            throw new IllegalStateException("Microsoft login timed out. Approve the code and try again.");
         }
 
         status.accept("Xbox Live…");
-        JsonObject xbl = postJson(
-                "https://user.auth.xboxlive.com/user/authenticate",
-                "{\"Properties\":{\"AuthMethod\":\"RPS\",\"SiteName\":\"user.auth.xboxlive.com\",
+        String xblBody = "{\"Properties\":{\"AuthMethod\":\"RPS\",\"SiteName\":\"user.auth.xboxlive.com\",
