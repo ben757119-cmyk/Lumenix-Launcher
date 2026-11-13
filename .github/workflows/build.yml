@@ -1,0 +1,67 @@
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Build
+        run: mvn -B -q package
+
+      - name: Verify jar
+        shell: bash
+        run: |
+          test -f target/LumenixLauncher.jar
+          echo "JAR size=$(wc -c < target/LumenixLauncher.jar)"
+
+      - name: Package ZIP
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp target/LumenixLauncher.jar dist/
+          cp README.md dist/ 2>/dev/null || true
+          cd dist && powershell -Command "Compress-Archive -Path * -DestinationPath ../LumenixLauncher-windows.zip -Force"
+
+      - name: jpackage EXE (self-contained when possible)
+        shell: bash
+        run: |
+          set -e
+          mkdir -p jpackage-in
+          cp target/LumenixLauncher.jar jpackage-in/
+          jpackage \
+            --type app-image \
+            --name LumenixLauncher \
+            --input jpackage-in \
+            --main-jar LumenixLauncher.jar \
+            --main-class com.lumenix.launcher.LumenixLauncher \
+            --dest jpackage-out \
+            --java-options "-Dfile.encoding=UTF-8" \
+            || echo "jpackage app-image failed — JAR-only artifact still published"
+          if [ -d jpackage-out/LumenixLauncher ]; then
+            cd jpackage-out && powershell -Command "Compress-Archive -Path LumenixLauncher -DestinationPath ../LumenixLauncher-appimage.zip -Force"
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: lumenix-launcher-windows
+          path: |
+            target/LumenixLauncher.jar
+            LumenixLauncher-windows.zip
+            LumenixLauncher-appimage.zip
+          if-no-files-found: warn
