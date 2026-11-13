@@ -12,11 +12,12 @@ public final class LumenixLauncher {
         } catch (Exception e) {
             System.err.println("Cannot create data dirs: " + e.getMessage());
         }
+        // Force a predictable cross-platform look so custom buttons stay readable
+        try {
+            UIManager.setLookAndFeel(UIManager.getCrossPlatformLookAndFeelClassName());
+        } catch (Exception ignored) {}
         System.setProperty("apple.awt.application.name", "Lumenix Launcher");
         SwingUtilities.invokeLater(() -> {
-            try {
-                UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-            } catch (Exception ignored) {}
             LauncherFrame frame = new LauncherFrame();
             frame.setVisible(true);
             Log.info("UI ready");
